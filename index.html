@@ -35,5 +35,41 @@
         function fire() { alert('БАБАХ!'); }
         draw();
     </script>
+// --- СИСТЕМА СОХРАНЕНИЯ ---
+let gameData = JSON.parse(localStorage.getItem('tankGameData')) || {
+    money: 0,
+    purchasedTanks: ['basic'], // базовый танк
+    currentTank: 'basic'
+};
+
+function save() {
+    localStorage.setItem('tankGameData', JSON.stringify(gameData));
+}
+
+// --- ЛОГИКА УБИЙСТВА И МОНЕТ ---
+function enemyKilled() {
+    gameData.money += 1;
+    save();
+    console.log("Монет: " + gameData.money);
+}
+
+// --- МАГАЗИН ---
+function buyTank(tankName, price) {
+    if (gameData.money >= price) {
+        gameData.money -= price;
+        gameData.purchasedTanks.push(tankName);
+        save();
+        alert("Танк куплен!");
+    } else {
+        alert("Не хватает монет!");
+    }
+}
+
+// --- СМЕРТЬ (Печалька) ---
+function gameOver() {
+    alert("Танк уничтожен! Весь прогресс и монеты потеряны.");
+    localStorage.clear(); // Стираем всё к чертям
+    location.reload();    // Перезагружаем игру
+}
 </body>
 </html>
