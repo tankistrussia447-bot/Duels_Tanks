@@ -3,73 +3,82 @@
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <style>
-        body { margin:0; background:#222; display:flex; flex-direction:column; align-items:center; height:100vh; overflow:hidden; color:white; font-family:sans-serif; touch-action:none; }
-        canvas { background:#4a5d23; width:95vw; height:50vh; border:4px solid #fff; margin-top:10px; }
-        #hp-container { width: 90vw; height: 20px; background: #555; border-radius: 10px; margin: 10px 0; overflow: hidden; }
-        #hp-bar { width: 100%; height: 100%; background: #dc2626; transition: width 0.3s; }
-        .controls { display:flex; gap:10px; margin-top:10px; }
-        button { padding:20px; font-size:20px; border-radius:10px; border:none; background:#444; color:white; }
-        #fire { background:#b91c1c; }
+        body { margin:0; background:#222; display:flex; flex-direction:column; align-items:center; height:100vh; color:white; font-family:sans-serif; touch-action:none; }
+        canvas { background:#4a5d23; width:100vw; height:50vh; border:4px solid #fff; margin-top:5px; }
+        .ui { font-size:18px; margin: 5px; }
+        #shop { display:none; position:fixed; top:5%; background:#333; padding:15px; border-radius:15px; width:85vw; height:80vh; overflow-y:auto; text-align:center; }
+        button { padding:15px; font-size:16px; margin:5px; border-radius:10px; border:none; background:#444; color:white; width: 90%; }
+        #fire { background:#b91c1c; width: 100px; height: 100px; border-radius: 50%; }
     </style>
 </head>
 <body>
-    <div class="ui">Монет: <span id="money">0</span></div>
-    <div id="hp-container"><div id="hp-bar"></div></div>
-    
+    <div class="ui">Монет: <span id="money">0</span> | Танк: <span id="tank-name">МС-1</span> | HP: <span id="hp">100</span></div>
     <canvas id="game" width="400" height="300"></canvas>
-    
-    <div class="controls">
+    <div style="display:flex; gap:10px; margin-top:10px;">
         <button onclick="move(-20)">◀</button>
         <button id="fire" onclick="fire()">🔥</button>
         <button onclick="move(20)">▶</button>
     </div>
 
+    <div id="shop">
+        <h3>МАГАЗИН (Выбери танк)</h3>
+        <div id="tank-list"></div>
+    </div>
+
     <script>
+        // БАЗА ТАНКОВ (Добавляй сюда сколько хочешь)
+        const tanksDB = [
+            {name: 'МС-1', price: 0, damage: 1, color: '#555'},
+            {name: 'Т-26', price: 3, damage: 2, color: '#4a5d23'},
+            {name: 'Комета', price: 10, damage: 5, color: '#3d5a37'},
+            {name: 'КВ-2', price: 20, damage: 10, color: '#2d4a27'},
+            {name: 'КВ-6', price: 50, damage: 25, color: '#1a2a1a'},
+            {name: 'Абрамс', price: 100, damage: 50, color: '#888'}
+        ];
+
+        let money = parseInt(localStorage.getItem('money')) || 0;
+        let player = { x: 180, hp: 100, dmg: 1, color: '#555' };
+        let bullets = [], enemies = [], round = 1, state = 'playing';
+
+        function spawn() { enemies = []; for(let i=0; i<round; i++) enemies.push({x: 20+i*80, y: 30, hp: round*2}); }
+        spawn();
+
         const ctx = document.getElementById('game').getContext('2d');
-        let player = { x: 180, y: 240, hp: 100, money: 0 };
-        let bullets = [], eBullets = [];
-        let enemies = [{ x: 50, y: 50 }, { x: 150, y: 50 }, { x: 250, y: 50 }];
-
         function draw() {
+            if(state !== 'playing') return;
             ctx.clearRect(0, 0, 400, 300);
-            // Танк игрока
-            ctx.fillStyle = 'lime'; ctx.fillRect(player.x, player.y, 40, 40);
-            
-            // Враги
-            ctx.fillStyle = 'red';
-            enemies.forEach(e => {
-                ctx.fillRect(e.x, e.y, 40, 40);
-                if(Math.random() < 0.02) eBullets.push({x: e.x+20, y: e.y+40});
-            });
-
-            // Пули игрока
+            ctx.fillStyle = player.color; ctx.fillRect(player.x, 240, 40, 40);
+            enemies.forEach(e => { ctx.fillStyle = 'red'; ctx.fillRect(e.x, e.y, 40, 40); });
             bullets.forEach((b, i) => {
-                b.y -= 5;
-                ctx.fillStyle = 'yellow'; ctx.fillRect(b.x, b.y, 5, 10);
+                b.y -= 5; ctx.fillStyle = 'yellow'; ctx.fillRect(b.x, b.y, 5, 10);
                 enemies.forEach((e, ei) => {
                     if(b.y < e.y+40 && b.x > e.x && b.x < e.x+40) {
-                        enemies.splice(ei, 1); bullets.splice(i, 1);
-                        player.money++; document.getElementById('money').innerText = player.money;
+                        e.hp -= player.dmg; bullets.splice(i, 1);
+                        if(e.hp <= 0) { enemies.splice(ei, 1); money++; updateUI(); }
                     }
                 });
             });
-
-            // Пули врагов
-            eBullets.forEach((b, i) => {
-                b.y += 3;
-                ctx.fillStyle = 'orange'; ctx.fillRect(b.x, b.y, 5, 10);
-                if(b.y > player.y && b.y < player.y+40 && b.x > player.x && b.x < player.x+40) {
-                    player.hp -= 10;
-                    document.getElementById('hp-bar').style.width = player.hp + "%";
-                    eBullets.splice(i, 1);
-                    if(player.hp <= 0) { alert("ТАНК УНИЧТОЖЕН!"); location.reload(); }
-                }
-            });
+            if(enemies.length === 0) showShop();
             requestAnimationFrame(draw);
         }
 
+        function showShop() {
+            state = 'shop'; document.getElementById('shop').style.display = 'block';
+            let list = document.getElementById('tank-list'); list.innerHTML = '';
+            tanksDB.forEach(t => {
+                list.innerHTML += `<button onclick="buy('${t.name}', ${t.price}, ${t.damage}, '${t.color}')">${t.name} (Урон: ${t.damage}, Цена:${t.price})</button>`;
+            });
+        }
+
+        function buy(name, price, dmg, color) {
+            if(money >= price) { money -= price; player.dmg = dmg; player.color = color;
+            document.getElementById('tank-name').innerText = name; updateUI(); 
+            state = 'playing'; document.getElementById('shop').style.display = 'none'; spawn(); draw(); }
+        }
+
+        function updateUI() { document.getElementById('money').innerText = money; localStorage.setItem('money', money); }
         function move(d) { player.x += d; }
-        function fire() { bullets.push({x: player.x+20, y: player.y}); }
+        function fire() { bullets.push({x: player.x+20, y: 240}); }
         draw();
     </script>
 </body>
