@@ -3,61 +3,52 @@
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <style>
-        body { margin:0; background:#222; display:flex; flex-direction:column; align-items:center; height:100vh; overflow:hidden; color:white; font-family:sans-serif; touch-action:none; }
-        canvas { background:#3a4a2b; width:100vw; height:50vh; border-bottom:4px solid #fff; }
-        .ui { display:flex; justify-content:space-between; width:95vw; padding:10px; font-size:16px; }
-        .game-layout { display:flex; width:100vw; height:40vh; align-items:center; justify-content:space-between; padding:20px; }
-        .d-pad { display:flex; gap:10px; }
-        .fire-zone { display:flex; flex-direction:column; align-items:center; gap:10px; }
-        button { padding:20px; font-size:18px; border-radius:10px; border:none; background:#444; color:white; }
-        #fire { background:#b91c1c; width:80px; height:80px; border-radius:50%; }
-        #shop-panel { display:none; position:fixed; top:10%; background:#333; padding:20px; width:80vw; border-radius:15px; }
+        body { margin:0; background:#111; display:flex; flex-direction:column; align-items:center; height:100vh; overflow:hidden; color:white; font-family:sans-serif; }
+        canvas { background: linear-gradient(to bottom, #4a614c, #2e3d2f); width:100vw; height:55vh; border-bottom:4px solid #fff; }
+        .ui { display:flex; justify-content:space-between; width:90vw; padding:10px; font-size:18px; }
+        .controls { display:flex; gap:15px; margin-top:20px; }
+        button { padding:20px; font-size:20px; border-radius:10px; border:none; background:#444; color:white; }
+        #fire { background:#b91c1c; width: 90px; height: 90px; border-radius: 50%; }
+        #shop-panel { display:none; position:fixed; top:10%; background:#222; border: 2px solid white; padding:20px; width:80vw; }
     </style>
 </head>
 <body>
     <div class="ui">
-        <div>Монет: <span id="money">0</span> | ХП: <span id="hp">100</span></div>
+        <div>Монет: <span id="money">0</span> | Танк: <span id="tank-name">Т-26</span></div>
         <div id="ammo">🖍️🖍️🖍️</div>
-        <div id="timer" style="color:red"></div>
     </div>
-    
     <canvas id="game" width="400" height="300"></canvas>
-
-    <div class="game-layout">
-        <div class="d-pad">
-            <button onclick="move(-20)">◀</button>
-            <button onclick="move(20)">▶</button>
-        </div>
-        <div class="fire-zone">
-            <button id="fire" onclick="fire()">🔥</button>
-            <button onclick="toggleShop()">🛒</button>
-        </div>
+    <div class="controls">
+        <button onclick="move(-20)">◀</button>
+        <button id="fire" onclick="fire()">🔥</button>
+        <button onclick="move(20)">▶</button>
+        <button onclick="toggleShop()">🛒</button>
     </div>
 
     <div id="shop-panel" class="shop-panel">
-        <button onclick="buyTank('КВ-2', 20, 1)">КВ-2 (Цена: 20)</button><br>
-        <button onclick="buyTank('СТ-2', 40, 2)">СТ-2 (2 пушки! Цена: 40)</button><br>
-        <button onclick="toggleShop()">ЗАКРЫТЬ</button>
+        <h3>АНГАР</h3>
+        <button onclick="buyTank('Т-26 (СССР)', 0, '#2d5a27')">Т-26 (СССР)</button>
+        <button onclick="buyTank('Comet (UK)', 20, '#d2b48c')">Comet (Брит)</button>
+        <button onclick="toggleShop()">Назад</button>
     </div>
 
     <script>
         const ctx = document.getElementById('game').getContext('2d');
-        let player = { x: 180, hp: 100, money: 0, clip: 3, reloading: false };
-        let bullets = [], enemies = [{x: 50, y: 50, hp: 3}];
-        
+        let player = { x: 170, money: 0, color: '#2d5a27', ammo: 3, reloading: false };
+        let bullets = [], enemies = [{x: 100, y: 50, hp: 2}];
+
         function drawTank(x, y, color) {
-            ctx.fillStyle = color; ctx.fillRect(x, y, 60, 40); // Корпус
-            ctx.fillStyle = '#5d8a55'; ctx.fillRect(x+15, y-15, 30, 30); // Башня
-            ctx.fillStyle = '#333'; ctx.fillRect(x+25, y-35, 10, 20); // Пушка
+            ctx.fillStyle = color; ctx.fillRect(x, 220, 60, 40); // Корпус
+            ctx.fillStyle = '#444'; ctx.fillRect(x+15, 205, 30, 25); // Башня
+            ctx.fillStyle = '#000'; ctx.fillRect(x+25, 185, 10, 25); // Пушка
         }
 
         function draw() {
             ctx.clearRect(0, 0, 400, 300);
-            drawTank(player.x, 220);
+            drawTank(player.x, 220, player.color);
             enemies.forEach(e => { ctx.fillStyle = 'red'; ctx.fillRect(e.x, e.y, 40, 40); });
-            
             bullets.forEach((b, i) => {
-                b.y -= 5; ctx.fillStyle = 'yellow'; ctx.fillRect(b.x, b.y, 5, 10);
+                b.y -= 7; ctx.fillStyle = 'yellow'; ctx.fillRect(b.x, b.y, 5, 10);
                 enemies.forEach((e, ei) => {
                     if(b.y < e.y+40 && b.x > e.x && b.x < e.x+40) {
                         enemies.splice(ei, 1); bullets.splice(i, 1);
@@ -65,33 +56,31 @@
                     }
                 });
             });
+            if(enemies.length === 0) enemies.push({x: Math.random()*300, y: 50, hp: 2});
             requestAnimationFrame(draw);
         }
 
         function fire() {
-            if(player.clip > 0 && !player.reloading) {
+            if(player.ammo > 0 && !player.reloading) {
                 bullets.push({x: player.x+27, y: 220});
-                player.clip--;
-                updateAmmo();
-                if(player.clip === 0) reload();
+                player.ammo--;
+                document.getElementById('ammo').innerText = "🖍️".repeat(player.ammo);
+                if(player.ammo === 0) reload();
             }
         }
 
         function reload() {
             player.reloading = true;
-            let time = 3;
-            document.getElementById('timer').innerText = "КД: 3с";
-            let interval = setInterval(() => {
-                time--; document.getElementById('timer').innerText = "КД: " + time + "с";
-                if(time <= 0) { clearInterval(interval); player.clip = 3; player.reloading = false; updateAmmo(); document.getElementById('timer').innerText = ""; }
-            }, 1000);
+            document.getElementById('ammo').innerText = "🔄";
+            setTimeout(() => { player.ammo = 3; player.reloading = false; document.getElementById('ammo').innerText = "🖍️🖍️🖍️"; }, 2000);
         }
 
-        function updateAmmo() { document.getElementById('ammo').innerText = "🖍️".repeat(player.clip); }
-        function move(d) { player.x += d; }
+        function buyTank(name, price, color) {
+            if(player.money >= price) { player.money -= price; player.color = color; document.getElementById('tank-name').innerText = name; document.getElementById('money').innerText = player.money; toggleShop(); }
+        }
+
         function toggleShop() { document.getElementById('shop-panel').style.display = (document.getElementById('shop-panel').style.display === 'block') ? 'none' : 'block'; }
-        function buyTank(n, p, c) { if(player.money >= p) { player.money -= p; alert(n + " куплен!"); } }
-        
+        function move(d) { player.x += d; }
         draw();
     </script>
 </body>
