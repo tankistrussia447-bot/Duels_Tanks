@@ -4,17 +4,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <style>
         body { margin:0; background:#1a1a1a; display:flex; flex-direction:column; align-items:center; height:100vh; overflow:hidden; color:white; font-family:sans-serif; touch-action:none; }
-        canvas { background: #3d523d; width:100vw; height:50vh; border-bottom:2px solid #555; }
+        canvas { background: linear-gradient(to bottom, #4a614c, #2e3d2f); width:100vw; height:50vh; border-bottom:2px solid #555; }
         .ui { display:flex; justify-content:space-between; width:95vw; padding:8px; font-size:14px; background:rgba(0,0,0,0.5); }
         .controls-layer { display:flex; width:100vw; height:45vh; justify-content:space-between; align-items:center; padding:10px; box-sizing:border-box; }
+        
         .dpad { display: grid; grid-template-columns: repeat(3, 55px); grid-template-rows: repeat(3, 55px); gap: 5px; }
         .dpad button { background:#444; border:1px solid #666; color:white; border-radius:5px; font-size:18px; }
         .dpad .up { grid-column: 2; grid-row: 1; }
         .dpad .left { grid-column: 1; grid-row: 2; }
         .dpad .right { grid-column: 3; grid-row: 2; }
         .dpad .down { grid-column: 2; grid-row: 3; }
+
+        .actions { display:flex; flex-direction:column; align-items:center; gap:10px; margin-right:20px; }
         #fire { background:#b91c1c; width:85px; height:85px; border-radius:50%; font-size:25px; border:4px solid #7f1d1d; }
-        #shop-panel, #play-btn { display:none; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); background:#222; border: 2px solid white; padding:20px; width:80vw; z-index:100; text-align:center; }
+        #fire:active { transform: translateY(2px); box-shadow:none; }
+        .shop-btn { background:#2563eb; padding:10px 15px; border-radius:8px; border:none; color:white; font-size:16px; }
+        
+        #shop-panel, #play-btn { display:none; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); background:rgba(34,34,34,0.95); border: 2px solid white; padding:20px; width:80vw; z-index:100; text-align:center; }
+        #play-btn { background:#22c55e; padding:20px; font-size:24px; font-weight:bold; }
     </style>
 </head>
 <body>
@@ -26,67 +33,107 @@
 
     <div class="controls-layer">
         <div class="dpad">
-            <button class="up" ontouchstart="setMove('forward')" ontouchend="stopMove()">▲</button>
-            <button class="left" ontouchstart="rotate(3)" ontouchend="stopMove()">◀</button>
-            <button class="right" ontouchstart="rotate(1)" ontouchend="stopMove()">▶</button>
-            <button class="down" ontouchstart="setMove('backward')" ontouchend="stopMove()">▼</button>
+            <button class="up" ontouchstart="setPlayerMove('forward')" ontouchend="stopPlayerMove()">▲</button>
+            <button class="left" ontouchstart="setPlayerRotate('left')" ontouchend="stopPlayerRotate()">◀</button>
+            <button class="right" ontouchstart="setPlayerRotate('right')" ontouchend="stopPlayerRotate()">▶</button>
+            <button class="down" ontouchstart="setPlayerMove('backward')" ontouchend="stopPlayerMove()">▼</button>
         </div>
-        <div style="display:flex; flex-direction:column; gap:10px;">
+        <div class="actions">
             <button id="fire" onclick="fire()">🔥</button>
-            <button onclick="toggleShop()" style="background:#2563eb; color:white; border:none; padding:10px; border-radius:5px;">🛒</button>
+            <button class="shop-btn" onclick="toggleShop()">🛒 МАГАЗИН</button>
         </div>
     </div>
 
     <div id="shop-panel">
-        <h3>МАГАЗИН</h3>
-        <button onclick="buyTank('Comet', 10, '#d2b48c', 1.5)">Comet (10м)</button><br><br>
+        <h3>АНГАР И УЛУЧШЕНИЯ</h3>
+        <button onclick="buyUpgrade('ammo', 20, 2)">Ускор. перезарядка (-0.5с) - 20м</button><br><br>
+        <button onclick="buyTank('Comet (Брит)', 50, '#d2b48c')">Comet (Брит) - 50м</button><br><br>
         <button onclick="toggleShop()">ЗАКРЫТЬ</button>
     </div>
-    <button id="play-btn" onclick="startNewRound()">СЛЕДУЮЩИЙ РАУНД</button>
+    <button id="play-btn" onclick="startNewRound()">НАЧАТЬ РАУНД!</button>
 
     <script>
         const canvas = document.getElementById('game');
         const ctx = canvas.getContext('2d');
 
-        let money = 0, round = 1, kills = 0, gameState = 'playing';
-        const T_W = 24, T_H = 30; // Уменьшенный масштаб на 40%
+        const T_W = 24, T_H = 30; // Ширина и высота танка (уменьшено на 40%)
+        const MAP_W = canvas.width, MAP_H = canvas.height; // Размеры карты
 
-        let player = { x: 180, y: 220, dir: 0, color: '#2d5a27', reloading: false, move: null, isHidden: false };
-        let enemies = [], wreckage = [], bullets = [], obstacles = [], bushes = [];
+        let money = 0, round = 1, killsInRound = 0, gameState = 'playing';
+        const KILLS_FOR_NEXT_ROUND = 5; // Уменьшил для тестирования
 
-        function initMap() {obstacles = [
-                {x: 50, y: 100, w: 40, h: 40, type: 'house'},
-                {x: 300, y: 50, w: 40, h: 40, type: 'house'}
-            ];
-            bushes = [
-                {x: 150, y: 120, w: 60, h: 40},
-                {x: 20, y: 200, w: 60, h: 40}
-            ];
-            spawnEnemies();
+        let player = {
+            x: MAP_W / 2 - T_W / 2, y: MAP_H - T_H - 10, // Позиция игрока
+            width: T_W, height: T_H,
+            color: '#2d5a27', // Цвет танка (СССР)
+            dir: 0, // 0:вверх, 1:вправо, 2:вниз, 3:влево
+            speed: 0, // Скорость движения
+            reloading: false, reloadTime: 1500, // Перезарядка
+            moveAction: null, // 'forward', 'backward'
+            rotateAction: null, // 'left', 'right'
+            isHidden: false // Скрыт в кустах
+        };
+
+        let bullets = [], enemies = [], wreckage = [], obstacles = [], bushes = [];
+
+        // --- СОЗДАНИЕ МИРА ---
+        function initMap() {
+            obstacles = []; bushes = [];
+            // Дома
+            for(let i=0; i<8; i++) obstacles.push({x: Math.random()*(MAP_W-40), y: Math.random()*(MAP_H-100), w: 30, h: 30, type: 'house', color: '#665544'});
+            // Кусты
+            for(let i=0; i<10; i++) bushes.push({x: Math.random()*(MAP_W-40), y: Math.random()*(MAP_H-100), w: 50, h: 30, type: 'bush'});
         }
 
         function spawnEnemies() {
             enemies = [];
-            for(let i=0; i < (1 + round); i++) {
-                enemies.push({ x: Math.random()*350, y: 20, dir: 2, color: '#7c1c1c', lastShot: 0, isHidden: false });
+            let count = Math.min(10, Math.floor(2 + round * 0.5)); // Больше врагов, но не больше 10
+            for(let i=0; i<count; i++) {
+                enemies.push({
+                    x: Math.random() * (MAP_W - T_W), y: Math.random() * (MAP_H / 2 - T_H), // В верхней половине карты
+                    width: T_W, height: T_H,
+                    color: '#7c1c1c', // Цвет врага
+                    dir: Math.floor(Math.random()*4), // Случайное направление
+                    speed: 1 + round*0.1, // Скорость врага
+                    reloadTime: 2000 / (1 + round*0.1), // Быстрее перезаряжаются
+                    lastShotTime: Date.now(),
+                    moveAction: null, // 'forward', 'backward'
+                    rotateAction: null, // 'left', 'right'
+                    isHidden: false, // Скрыт в кустах
+                    lastDirectionChange: Date.now() // Для AI
+                });
             }
         }
 
+        // --- КОЛЛИЗИИ ---
         function isColliding(rect1, rect2) {
-            return rect1.x < rect2.x + rect2.w && rect1.x + rect1.w > rect2.x &&
-                   rect1.y < rect2.y + rect2.h && rect1.y + rect1.h > rect2.y;
+            return rect1.x < rect2.x + rect2.width && rect1.x + rect1.width > rect2.x &&
+                   rect1.y < rect2.y + rect2.height && rect1.y + rect1.height > rect2.y;
         }
 
-        function checkAllCollisions(newX, newY) {
-            let pRect = {x: newX, y: newY, w: T_W, h: T_H};
-            for(let o of obstacles) if(isColliding(pRect, o)) return true;
-            for(let e of enemies) if(isColliding(pRect, {x:e.x, y:e.y, w:T_W, h:T_H})) return true;
-            return false;
+        function getObstaclesAndEnemies(tank) {
+            let others = [];
+            obstacles.forEach(o => others.push({x: o.x, y: o.y, width: o.w, height: o.h}));
+            enemies.forEach(e => { if (e !== tank) others.push({x: e.x, y: e.y, width: T_W, height: T_H}); });
+            if (tank !== player) others.push({x: player.x, y: player.y, width: T_W, height: T_H});
+            return others;
         }
 
+        function canMove(tank, newX, newY) {
+            let tankRect = {x: newX, y: newY, width: T_W, height: T_H};
+            // Проверка границ карты
+            if (newX < 0 || newX > MAP_W - T_W || newY < 0 || newY > MAP_H - T_H) return false;
+            // Проверка на столкновение с препятствиями и другими танками
+            for (let other of getObstaclesAndEnemies(tank)) {
+                if (isColliding(tankRect, other)) return false;
+            }
+            return true;
+        }
+
+        // --- РИСОВАНИЕ ОБЪЕКТОВ ---
         function drawTank(t, isBurnt, isPlayer) {
             let inBush = false;
-            bushes.forEach(b => { if(isColliding({x:t.x, y:t.y, w:T_W, h:T_H}, b)) inBush = true; });
+            bushes.forEach(b => { if(isColliding({x:t.x, y:t.y, width:T_W, height:T_H}, b)) inBush = true; });
             
             if(isPlayer) player.isHidden = inBush;
             else t.isHidden = inBush;
@@ -95,89 +142,205 @@
 
             ctx.save();
             ctx.translate(t.x + T_W/2, t.y + T_H/2);
-            ctx.rotate(t.dir * Math.PI / 2);
+            ctx.rotate(t.dir * Math.PI / 2); // Поворот танка
             ctx.globalAlpha = (isPlayer && inBush) ? 0.4 : 1.0;
 
+            // Корпус
             ctx.fillStyle = isBurnt ? "#111" : t.color;
-            ctx.fillRect(-T_W/2, -T_H/2, T_W, T_H);
+            ctx.fillRect(-T_W/2, -T_H/2, T_W, T_H); 
+
+            // Башня (Округлая)
             ctx.fillStyle = isBurnt ? "#000" : "#444";
-            ctx.beginPath(); ctx.arc(0, 0, 8, 0, 7); ctx.fill();
-            ctx.fillStyle = "#000"; ctx.fillRect(-2, -T_H/2 - 5, 4, 15);
+            ctx.beginPath();
+            ctx.arc(0, 0, 8, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Пушка
+            ctx.fillStyle = "#000";
+            ctx.fillRect(-2, -T_H/2 - 10, 4, 15); // Пушка из башни
             ctx.restore();
             ctx.globalAlpha = 1.0;
         }
 
-        function update() {
+        function drawObstacle(obs) {
+            ctx.fillStyle = obs.color || "#554433";
+            ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
+        }
+
+        function drawBush(bush) {
+            ctx.fillStyle = "rgba(20, 50, 20, 0.7)";
+            ctx.fillRect(bush.x, bush.y, bush.w, bush.h);
+        }
+
+        // --- ИГРОВОЙ ЦИКЛ ---
+        function updateGameLogic() {
             if(gameState !== 'playing') return;
 
-            let speed = 2;
-            let nextX = player.x, nextY = player.y;
-
-            if(player.move === 'forward') {
-                nextX += Math.sin(player.dir * Math.PI/2) * speed;
-                nextY -= Math.cos(player.dir * Math.PI/2) * speed;
+            // --- Движение игрока ---
+            let px = player.x, py = player.y;
+            if(player.moveAction === 'forward') {
+                px += Math.sin(player.dir * Math.PI/2) * player.speed;
+                py -= Math.cos(player.dir * Math.PI/2) * player.speed;
+            } else if (player.moveAction === 'backward') {
+                px -= Math.sin(player.dir * Math.PI/2) * player.speed;
+                py += Math.cos(player.dir * Math.PI/2) * player.speed;
             }
-            if(player.move === 'backward') {
-                nextX -= Math.sin(player.dir * Math.PI/2) * speed;
-                nextY += Math.cos(player.dir * Math.PI/2) * speed;
-            }
+            if(canMove(player, px, py)) { player.x = px; player.y = py; }
 
-            if(!checkAllCollisions(nextX, nextY)) {
-                player.x = nextX; player.y = nextY;
-            }
-
+            // --- Движение врагов и AI ---
             enemies.forEach(e => {
-                let oldX = e.x, oldY = e.y;
-                e.x += Math.sin(e.dir * Math.PI/2) * 1;
-                e.y -= Math.cos(e.dir * Math.PI/2) * 1;
-                if(checkAllCollisions(e.x, e.y) || e.x < 0 || e.x > 380 || e.y < 0 || e.y > 280) {
-                    e.x = oldX; e.y = oldY; e.dir = Math.floor(Math.random()*4);
+                let ex = e.x, ey = e.y;
+                let targetDir = e.dir;
+
+                // AI: Если игрок виден, ехать к нему, иначе патрулировать
+                if(!player.isHidden && Math.abs(player.x - e.x) < 100 && Math.abs(player.y - e.y) < 100) {
+                    // Простой AI: пытается ехать к игроку
+                    if (player.x > e.x && e.dir !== 1) targetDir = 1; // вправо
+                    else if (player.x < e.x && e.dir !== 3) targetDir = 3; // влево
+                    else if (player.y > e.y && e.dir !== 2) targetDir = 2; // вниз
+                    else if (player.y < e.y && e.dir !== 0) targetDir = 0; // вверх
+                } else {
+                    if (Date.now() - e.lastDirectionChange > 1000) { // Меняет направление каждые 1-2 секунды
+                        targetDir = Math.floor(Math.random()*4);
+                        e.lastDirectionChange = Date.now();
+                    }
                 }
-                if(!player.isHidden && Math.random() < 0.01) {
-                     bullets.push({x: e.x+T_W/2, y: e.y+T_H/2, dx: Math.sin(e.dir*Math.PI/2)*4, dy: -Math.cos(e.dir*Math.PI/2)*4, owner: 'enemy'});
+                
+                // Пробуем двигаться в новом направлении
+                let nextEX = e.x + Math.sin(targetDir * Math.PI/2) * e.speed;
+                let nextEY = e.y - Math.cos(targetDir * Math.PI/2) * e.speed;
+
+                if (canMove(e, nextEX, nextEY)) {
+                    e.x = nextEX; e.y = nextEY; e.dir = targetDir;
+                } else { // Если столкнулся, поворачиваем
+                    e.dir = (e.dir + 1) % 4; // Поворот на 90 градусов вправо
+                }
+
+                // Стрельба ИИ (если игрок не скрыт и не перезаряжается)
+                if(!player.isHidden && !e.isHidden && Date.now() - e.lastShotTime > e.reloadTime) {
+                    bullets.push({x: e.x + T_W/2, y: e.y + T_H/2, dx: Math.sin(e.dir*Math.PI/2)*5, dy: -Math.cos(e.dir*Math.PI/2)*5, owner: 'enemy'});e.lastShotTime = Date.now();
                 }
             });
 
+            // --- Движение и коллизии пуль ---
             bullets.forEach((b, i) => {
                 b.x += b.dx; b.y += b.dy;
+                // Удаление пуль за экраном
+                if(b.x < 0 || b.x > MAP_W || b.y < 0 || b.y > MAP_H) { bullets.splice(i, 1); return; }
+
                 if(b.owner === 'player') {
                     enemies.forEach((e, ei) => {
-                        if(isColliding({x:b.x, y:b.y, w:4, h:4}, {x:e.x, y:e.y, w:T_W, h:T_H})) {
-                            wreckage.push(enemies.splice(ei, 1)[0]);
-                            money++; kills++; document.getElementById('money').innerText = money;
-                            bullets.splice(i, 1);
+                        if(isColliding({x:b.x, y:b.y, width:4, height:4}, {x:e.x, y:e.y, width:T_W, height:T_H})) {
+                            let isRearHit = (b.y > e.y + T_H / 2); // Пример "задней" части врага
+                            if(isRearHit || Math.random() < 0.4) { // 40% шанс пробить в лоб/бок
+                                wreckage.push(enemies.splice(ei, 1)[0]);
+                                money++; killsInRound++; document.getElementById('money').innerText = money;
+                                if(killsInRound >= KILLS_FOR_NEXT_ROUND) {
+                                    gameState = 'waiting';
+                                    document.getElementById('play-btn').style.display = 'block';
+                                }
+                            }
+                            bullets.splice(i, 1); // Пуля исчезает при попадании
                         }
                     });
-                } else if(isColliding({x:b.x, y:b.y, w:4, h:4}, {x:player.x, y:player.y, w:T_W, h:T_H})) {
-                    alert("ТАНК УНИЧТОЖЕН!"); location.reload();
+                } else { // Пуля врага в игрока
+                    if(isColliding({x:b.x, y:b.y, width:4, height:4}, {x:player.x, y:player.y, width:T_W, height:T_H})) {
+                        alert("ТАНК УНИЧТОЖЕН! Конец игры.");
+                        location.reload(); // Перезагружаем игру при смерти
+                    }
                 }
-            });}
+            });
+        }
 
-        function draw() {
-            ctx.clearRect(0, 0, 400, 300);
-            bushes.forEach(b => { ctx.fillStyle = "rgba(20, 50, 20, 0.7)"; ctx.fillRect(b.x, b.y, b.w, b.h); });
-            obstacles.forEach(o => { ctx.fillStyle = "#554433"; ctx.fillRect(o.x, o.y, o.w, o.h); });
+        // --- ГЛАВНЫЙ ЦИКЛ РИСОВАНИЯ ---
+        function drawGame() {
+            ctx.clearRect(0, 0, MAP_W, MAP_H);
+            
+            // Рисуем декорации и кусты под танками
+            obstacles.forEach(o => drawObstacle(o));
+            bushes.forEach(b => drawBush(b));
+
+            // Рисуем подбитые танки (черные)
             wreckage.forEach(w => drawTank(w, true, false));
+
+            // Рисуем живые танки (врагов и игрока)
             enemies.forEach(e => drawTank(e, false, false));
             drawTank(player, false, true);
+
+            // Рисуем пули
             ctx.fillStyle = "yellow"; bullets.forEach(b => ctx.fillRect(b.x, b.y, 4, 4));
-            update();
-            requestAnimationFrame(draw);
+
+            if(gameState === 'playing') {
+                 updateGameLogic(); // Обновляем логику только во время игры
+            }
+            requestAnimationFrame(drawGame);
         }
 
-        function setMove(m) { player.move = m; }
-        function rotate(d) { player.dir = d; }
-        function stopMove() { player.move = null; }
+        // --- УПРАВЛЕНИЕ ИГРОКОМ ---
+        function setPlayerMove(action) { player.moveAction = action; player.speed = 2; }
+        function stopPlayerMove() { player.moveAction = null; player.speed = 0; }
+        function setPlayerRotate(action) {
+            player.rotateAction = action;
+            if(action === 'left') player.dir = (player.dir + 3) % 4; // Поворот на 90 влево
+            if(action === 'right') player.dir = (player.dir + 1) % 4; // Поворот на 90 вправо
+        }
+        function stopPlayerRotate() { player.rotateAction = null; }
+
         function fire() {
             if(!player.reloading) {
-                bullets.push({x: player.x+T_W/2, y: player.y+T_H/2, dx: Math.sin(player.dir*Math.PI/2)*6, dy: -Math.cos(player.dir*Math.PI/2)*6, owner: 'player'});
-                player.reloading = true; setTimeout(() => player.reloading = false, 1500);
+                // Пуля вылетает из дула в текущем направлении танка
+                let bulletX = player.x + T_W/2 + Math.sin(player.dir * Math.PI/2) * (T_H/2);
+                let bulletY = player.y + T_H/2 - Math.cos(player.dir * Math.PI/2) * (T_H/2);
+                let bulletDx = Math.sin(player.dir * Math.PI/2) * 7;
+                let bulletDy = -Math.cos(player.dir * Math.PI/2) * 7;
+
+                bullets.push({x: bulletX, y: bulletY, dx: bulletDx, dy: bulletDy, owner: 'player'});
+                
+                player.reloading = true; document.getElementById('ammo-status').innerText = "ПЕРЕЗАРЯДКА 🔄";
+                setTimeout(() => { player.reloading = false; document.getElementById('ammo-status').innerText = "ГОТОВ 🖍️"; }, player.reloadTime);
             }
         }
-        function toggleShop() { let s = document.getElementById('shop-panel'); s.style.display = (s.style.display==='block')?'none':'block'; }
-        
+
+        function toggleShop() {
+            let s = document.getElementById('shop-panel');
+            if(s.style.display === 'block') { s.style.display = 'none'; gameState = 'playing'; }
+            else { s.style.display = 'block'; gameState = 'paused'; } // Пауза игры, когда магазин открыт
+            drawGame(); // Обновляем кадр, чтобы скрыть/показать магазин
+        }
+
+        function buyTank(name, price, color) {
+            if(money >= price) {
+                money -= price; player.color = color; // Здесь можно добавить reloadTime
+                document.getElementById('money').innerText = money;
+                document.getElementById('ammo-status').innerText = name; // Показываем название танка
+                toggleShop();
+            }
+        }
+
+        function buyUpgrade(type, price, value) { // Пример функции покупки апгрейдов
+            if(money >= price) {
+                money -= price;
+                if(type === 'ammo') player.reloadTime -= value; // Ускоряем перезарядку
+                document.getElementById('money').innerText = money;
+                toggleShop();
+                alert("Куплено улучшение!");
+            }
+        }
+
+        function startNewRound() {
+            round++; killsInRound = 0; wreckage = []; // Очищаем поле от трупов
+            document.getElementById('round').innerText = round;
+            document.getElementById('play-btn').style.display = 'none';
+            initMap(); // Новая карта
+            spawnEnemies(); // Новые враги
+            gameState = 'playing'; // Запускаем игру
+            drawGame();
+        }
+
+        // --- ИНИЦИАЛИЗАЦИЯ ИГРЫ ---
         initMap();
-        draw();
+        spawnEnemies(); // Первоначальный спавн врагов
+        drawGame(); // Запускаем игровой цикл
     </script>
 </body>
 </html>
