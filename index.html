@@ -3,84 +3,102 @@
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <style>
-        body { margin:0; background:#111; display:flex; flex-direction:column; align-items:center; height:100vh; overflow:hidden; color:white; font-family:sans-serif; }
-        canvas { background: linear-gradient(to bottom, #4a614c, #2e3d2f); width:100vw; height:55vh; border-bottom:4px solid #fff; }
-        .ui { display:flex; justify-content:space-between; width:90vw; padding:10px; font-size:18px; }
-        .controls { display:flex; gap:15px; margin-top:20px; }
-        button { padding:20px; font-size:20px; border-radius:10px; border:none; background:#444; color:white; }
-        #fire { background:#b91c1c; width: 90px; height: 90px; border-radius: 50%; }
-        #shop-panel { display:none; position:fixed; top:10%; background:#222; border: 2px solid white; padding:20px; width:80vw; }
+        body { margin:0; background:#111; display:flex; flex-direction:column; align-items:center; height:100vh; overflow:hidden; color:white; font-family:sans-serif; touch-action:none; }
+        canvas { background:#2e3d2f; width:100vw; height:50vh; border-bottom:2px solid #555; }
+        .ui { display:flex; justify-content:space-between; width:95vw; padding:10px; font-size:18px; background:#222; }
+        .controls-layer { display:flex; flex-direction:column; width:100vw; height:45vh; align-items:center; padding:10px; }
+        .dpad { display: grid; grid-template-columns: repeat(3, 60px); grid-template-rows: repeat(3, 60px); gap: 5px; margin-bottom: 10px; }
+        .dpad button { background:#444; color:white; border-radius:5px; font-size:20px; }
+        #fire { background:#b91c1c; width:80px; height:80px; border-radius:50%; }
+        #play-btn { display:none; background:#22c55e; padding:20px; width:80vw; font-size:24px; font-weight:bold; border-radius:10px; margin-top:20px; }
     </style>
 </head>
 <body>
     <div class="ui">
-        <div>Монет: <span id="money">0</span> | Танк: <span id="tank-name">Т-26</span></div>
-        <div id="ammo">🖍️🖍️🖍️</div>
+        <div>💰 <span id="money">0</span> | Раунд: <span id="round">1</span></div>
+        <div id="status">ГОТОВ 🖍️</div>
     </div>
     <canvas id="game" width="400" height="300"></canvas>
-    <div class="controls">
-        <button onclick="move(-20)">◀</button>
-        <button id="fire" onclick="fire()">🔥</button>
-        <button onclick="move(20)">▶</button>
-        <button onclick="toggleShop()">🛒</button>
-    </div>
 
-    <div id="shop-panel" class="shop-panel">
-        <h3>АНГАР</h3>
-        <button onclick="buyTank('Т-26 (СССР)', 0, '#2d5a27')">Т-26 (СССР)</button>
-        <button onclick="buyTank('Comet (UK)', 20, '#d2b48c')">Comet (Брит)</button>
-        <button onclick="toggleShop()">Назад</button>
+    <div class="controls-layer">
+        <div class="dpad">
+            <button class="up" ontouchstart="moveP('up')" ontouchend="stopP()">▲</button>
+            <button class="left" ontouchstart="moveP('left')" ontouchend="stopP()">◀</button>
+            <button class="right" ontouchstart="moveP('right')" ontouchend="stopP()">▶</button>
+            <button class="down" ontouchstart="moveP('down')" ontouchend="stopP()">▼</button>
+        </div>
+        <button id="fire" onclick="fire()">🔥</button>
+        <button id="play-btn" onclick="startNewRound()">PLAY</button>
     </div>
 
     <script>
         const ctx = document.getElementById('game').getContext('2d');
-        let player = { x: 170, money: 0, color: '#2d5a27', ammo: 3, reloading: false };
-        let bullets = [], enemies = [{x: 100, y: 50, hp: 2}];
+        let player = { x: 170, y: 220, color: '#2d5a27', ammo: 3, reloading: false, dx: 0, dy: 0 };
+        let bullets = [], enemies = [], wreckage = [], money = 0, round = 1, kills = 0, gameState = 'playing';
 
-        function drawTank(x, y, color) {
-            ctx.fillStyle = color; ctx.fillRect(x, 220, 60, 40); // Корпус
-            ctx.fillStyle = '#444'; ctx.fillRect(x+15, 205, 30, 25); // Башня
-            ctx.fillStyle = '#000'; ctx.fillRect(x+25, 185, 10, 25); // Пушка
+        function spawn() {
+            let count = Math.floor(2 * Math.pow(1.2, round - 1));
+            for(let i=0; i<count; i++) enemies.push({x: Math.random()*350, y: 30, color: '#7c1c1c', dx: 1 + round*0.1, lastShot: 0});
+        }
+        spawn();
+
+        function drawTank(t, isBurnt) {
+            ctx.fillStyle = isBurnt ? "#111" : t.color;
+            ctx.fillRect(t.x, t.y, 40, 50); 
+            ctx.fillStyle = isBurnt ? "#000" : "#444";
+            ctx.beginPath(); ctx.arc(t.x+20, t.y+25, 15, 0, 7); ctx.fill();
+            ctx.fillStyle = "#000"; ctx.fillRect(t.x+18, t.y-10, 4, 20);
         }
 
         function draw() {
             ctx.clearRect(0, 0, 400, 300);
-            drawTank(player.x, 220, player.color);
-            enemies.forEach(e => { ctx.fillStyle = 'red'; ctx.fillRect(e.x, e.y, 40, 40); });
-            bullets.forEach((b, i) => {
-                b.y -= 7; ctx.fillStyle = 'yellow'; ctx.fillRect(b.x, b.y, 5, 10);
-                enemies.forEach((e, ei) => {
-                    if(b.y < e.y+40 && b.x > e.x && b.x < e.x+40) {
-                        enemies.splice(ei, 1); bullets.splice(i, 1);
-                        player.money++; document.getElementById('money').innerText = player.money;
-                    }
+            ctx.fillStyle = "white"; ctx.font = "20px Arial"; ctx.fillText("Раунд: " + round, 160, 30);
+            
+            wreckage.forEach(w => drawTank(w, true));
+            if(gameState === 'playing') {
+                enemies.forEach(e => {
+                    drawTank(e, false);
+                    e.x += e.dx; if(e.x > 360 || e.x < 0) e.dx *= -1;
                 });
+                drawTank(player, false);
+            }
+            
+            bullets.forEach((b, i) => {
+                b.y += b.dy;
+                ctx.fillStyle = 'yellow'; ctx.fillRect(b.x, b.y, 4, 8);
+                if(b.owner === 'player') {
+                    enemies.forEach((e, ei) => {
+                        if(b.x > e.x && b.x < e.x+40 && b.y > e.y && b.y < e.y+50) {
+                            if(b.y < e.y+15 || Math.random() < 0.4) {
+                                wreckage.push(enemies.splice(ei, 1)[0]);
+                                money++; kills++; document.getElementById('money').innerText = money;
+                                if(kills >= 20) { gameState = 'waiting'; document.getElementById('play-btn').style.display = 'block'; }
+                            }
+                            bullets.splice(i, 1);
+                        }
+                    });
+                }
             });
-            if(enemies.length === 0) enemies.push({x: Math.random()*300, y: 50, hp: 2});
             requestAnimationFrame(draw);
         }
 
         function fire() {
-            if(player.ammo > 0 && !player.reloading) {
-                bullets.push({x: player.x+27, y: 220});
-                player.ammo--;
-                document.getElementById('ammo').innerText = "🖍️".repeat(player.ammo);
-                if(player.ammo === 0) reload();
+            if(!player.reloading && player.ammo > 0) {
+                bullets.push({x: player.x+18, y: player.y, dy: -5, owner: 'player'});
+                player.ammo--; document.getElementById('ammo').innerText = "🖍️".repeat(player.ammo);
+                if(player.ammo === 0) { player.reloading = true; document.getElementById('status').innerText = "🔄"; setTimeout(() => { player.ammo=3; player.reloading=false; document.getElementById('status').innerText="ГОТОВ 🖍️"; }, 2000); }
             }
         }
 
-        function reload() {
-            player.reloading = true;
-            document.getElementById('ammo').innerText = "🔄";
-            setTimeout(() => { player.ammo = 3; player.reloading = false; document.getElementById('ammo').innerText = "🖍️🖍️🖍️"; }, 2000);
+        function startNewRound() {
+            round++; kills = 0; wreckage = []; gameState = 'playing';
+            document.getElementById('round').innerText = round;
+            document.getElementById('play-btn').style.display = 'none';
+            spawn();
         }
 
-        function buyTank(name, price, color) {
-            if(player.money >= price) { player.money -= price; player.color = color; document.getElementById('tank-name').innerText = name; document.getElementById('money').innerText = player.money; toggleShop(); }
-        }
-
-        function toggleShop() { document.getElementById('shop-panel').style.display = (document.getElementById('shop-panel').style.display === 'block') ? 'none' : 'block'; }
-        function move(d) { player.x += d; }
+        function moveP(d) { if(d==='up') player.dy=-3; if(d==='down') player.dy=3; if(d==='left') player.dx=-3; if(d==='right') player.dx=3; }
+        function stopP() { player.dx=0; player.dy=0; }
         draw();
     </script>
 </body>
