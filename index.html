@@ -20,8 +20,8 @@
         <button id="fire" onclick="fire()">🔥</button>
         <button onclick="move(10)">▶</button>
     </div>
-    <script>
-        const canvas = document.getElementById('game');
+    <script>  
+      const canvas = document.getElementById('game');
         const ctx = canvas.getContext('2d');
         let x = 180;
         
@@ -34,8 +34,7 @@
         function move(dir) { x += dir; }
         function fire() { alert('БАБАХ!'); }
         draw();
-    </script>
-// --- СИСТЕМА СОХРАНЕНИЯ ---
+    </script>// --- СИСТЕМА СОХРАНЕНИЯ ---
 let gameData = JSON.parse(localStorage.getItem('tankGameData')) || {
     money: 0,
     purchasedTanks: ['basic'], // базовый танк
